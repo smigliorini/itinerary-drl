@@ -1,0 +1,47 @@
+"id","name_id","category_it","covered_by_verona_card","address","latitude","longitude","Time_Visit","max_crowd"
+42,"Museo archeologico al teatro romano","Musei e Centri Espositivi","riduzione","Piazzetta Martiri della Libertà - Verona1","45.44708","11.00186",60,90
+43,"Arco dei Gavi","Monumenti","no","Arco dei Gavi, Corso Castelvecchio, 2 - Verona1","45.440121","10.988838",10,
+44,"Porta Borsari","Monumenti","no","Porta Borsari, Corso Porta Borsari - Verona1","45.4419495","10.993385",5,
+45,"Sito archeologico degli scavi Scaligeri","Musei e Centri Espositivi","no","Sito archeologico degli scavi Scaligeri, Cortile del Tribunale (Piazza Viviani) - Verona1","45.443061","10.9998448",30,
+46,"Ponte Pietra","Monumenti","no","Ponte Pietra - Verona1","45.447743","11.000101",5,
+47,"Teatro Romano","Monumenti","riduzione","Teatro Romano, Piazzetta Martiri della Libertà - Verona1","45.447093","11.001868",20,
+48,"Porta Leoni","Monumenti","no","Porta Leoni, Via Leoni - Verona1","45.4404835","10.9996801",5,
+49,"Anfiteatro Arena","Monumenti","riduzione","Anfiteatro Arena, Piazza Bra - Verona1","45.439116","10.994672",70,300
+50,"Castelvecchio","Monumenti","riduzione","Corso Castelvecchio, 2 - Verona1","45.4395227","10.9878302",10,
+51,"Chiesa di San Lorenzo","Chiese","no","Corso Cavour, 28 - Verona1","45.4411337","10.9915102",10,
+52,"complesso del Duomo","Chiese","riduzione percentuale","Piazza Duomo - Verona1","45.4470766","10.9967941",15,180
+53,"Biblioteca Capitolare","Monumenti","no","Piazza Duomo, 13 - Verona1","45.4470935","10.9963448",100,
+54,"Basilica di Santa Anastasia","Chiese","riduzione percentuale","Piazza Santa Anastasia - Verona1","45.445176","10.999825",10,190
+55,"Arche Scaligere","Monumenti","riduzione","via Santa Maria Antica, 1 - Verona1","45.4435218","10.9989774",5,
+56,"Piazza dei Signori o Piazza Dante","Monumenti","no","piazza dei Signori - Verona1","45.443503","10.9980494",10,
+57,"Palazzo del Capitanio o del Tribunale","Monumenti","no","piazza dei Signori - Verona1","45.443407","10.9985134",15,
+58,"Palazzo della Ragione o del Comune","Monumenti","no","piazza dei Signori - Verona1","45.4431191","10.9979367",60,30
+59,"Torre dei Lamberti","Monumenti","riduzione","Via dalla Costa, 2  - Verona1","45.4429629","10.9976605",45,190
+60,"Piazza Erbe","Monumenti","no","Piazza Erbe - Verona1","45.4432057","10.9970811",15,
+61,"Casa di Giulietta","Musei e Centri Espositivi","riduzione","Via Cappello, 23 - Verona1","45.4418507","10.9984303",30,220
+62,"Chiesa di San Fermo","Chiese","riduzione percentuale","Stradone san Fermo - Verona1","45.4391952","11.0000235",10,70
+63,"Basilica di San Zeno","Chiese","riduzione percentuale","Piazza San Zeno - Verona1","45.442372","10.9786355",10,20
+70,"Chiesa di San Bernardino","Chiese","no","Stradone A. Provolo, 28 - Verona1","45.4389054","10.9811246",10,
+71,"Museo di Castelvecchio","Musei e Centri Espositivi","gratis","Corso Castelvecchio, 2 - Verona1","45.4397711","10.9878302",90,160
+72,"Loggia del Consiglio","Monumenti","no","Piazza dei Signori - Verona1","45.4437156","10.9981191",5,
+73,"Chiesa di San Giorgio in Braida","Chiese","no","Lungadige San Giorgio - Verona1","45.4488567","10.9957319",10,
+74,"Chiesa di Santa Maria in Organo","Chiese","no","Piazzetta Santa Maria in Organo 1 - Verona1","45.4444016","11.0043137",10,
+75,"Giardino Giusti","Monumenti","riduzione","Via giardino Giusti, 2 - Verona1","45.4436667","11.0071608",60,5
+76,"Museo Lapidario Maffeiano","Musei e Centri Espositivi","gratis","Piazza Bra 28 - Verona1","45.4382674","10.9910917",40,50
+77,"Piazza Bra","Monumenti","no","Piazza Bra - Verona1","45.4388376","10.9924248",15,
+78,"Palazzo del Governo e della Prefettura","Monumenti","no","Piazza dei Signori  - Verona1","45.4436592","10.9986421",10,
+79,"Chiesa di Santa Maria Antica","Chiese","no","Via Arche Scaligere 3  - Verona1","45.443534","10.9991558",10,
+100,"Porta Nuova","Monumenti","no","Corso Porta Nuova - Verona1","45.4311698","10.9880715",5,
+101,"Porta San Zeno","Monumenti","no","Via Vittime Civili di Guerra - Verona1","45.4428067","10.9754974",5,
+102,"Porta Palio","Monumenti","no","Stradone Porta Palio - Verona1","45.4353294","10.9800303",5,
+110,"Torre del Gardello","Monumenti","no","Piazza Erbe - Verona1","45.4435462","10.9965742",5,
+200,"Museo Africano","Musei e Centri Espositivi","riduzione","Vicolo Pozzo, 1  Verona1","45.446307","11.0060531",90,
+201,"Museo di Storia Naturale","Musei e Centri Espositivi","riduzione","Lungadige Porta Vittoria 9, Verona1","45.4383803","11.0022014",90,
+202,"Museo degli Affreschi ""G.B. Cavalcaselle"" e Tomba di Giulietta","Musei e Centri Espositivi","riduzione","Via Luigi da Porto 5, Verona1","45.4337465","10.9969899",90,70
+203,"Galleria d'Arte Moderna ""Achille Forti""","Musei e Centri Espositivi","gratis","Cortile Mercato Vecchio, Verona1","45.4431229","10.9980252",60,
+204,"Funicolare di Castel San Pietro","Monumenti","gratis","Vicolo Cieco Zini, 3 - Verona0","45.448822","11.000838",30,
+300,"Museo Miniscalchi","Musei e Centri Espositivi","riduzione","Via S. Mamaso, 2/A","45.445006141236966","10.995544896464354",90,
+301,"Palazzo Maffei Casa Museo","Musei e Centri Espositivi","riduzione","Piazza Erbe, 38","45.443682011630514","10.996794004421433",90,
+302,"Museo Nazionale","Musei e Centri Espositivi","riduzione","Stradone S. Tomaso, 3","45.44209281660673","11.002646077210727",80,
+303,"Eataly Verona","Ristorazione","no","Via Santa Teresa, 12","45.41875693777363","10.98472171102506",50,
+
