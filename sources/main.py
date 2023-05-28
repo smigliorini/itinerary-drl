@@ -149,12 +149,12 @@ poi_dict = {'Arena': 49, 'Palazzo della Ragione': 58, 'Casa Giulietta': 61, 'Cas
 df_poi_vr2022['poi'] = df_poi_vr2022['sito_nome'].map(poi_dict)
 
 #df_poi_vr2022 = df_poi_vr2022.loc[df_poi_vr2022["data_visita"] == '08/11/22']
-df_poi_vr2022 = df_poi_vr2022.loc[df_poi_vr2022["data_visita"] == '02/12/22']
+df_poi_vr2022 = df_poi_vr2022.loc[df_poi_vr2022["data_visita"] == '28/12/22']
 
 # Inserisco gli input per l'ambiente
-date_input = datetime(2022, 11, 8, 9, 00)
+date_input = datetime(2022, 12, 28, 10, 00)
 time_input = 4
-poi_start = 61
+poi_start = 63
 
 reward_globale = 0
 i = 0
@@ -174,6 +174,7 @@ for (group_id, group_date), group_data in grouped_df_2022:
 
     date_loop = datetime.strptime(group_date, "%d/%m/%y")
     print(date_loop)
+    print( "POI START: " + str( poi_start ) )
     print_date_type(date_loop, df_weather_2022, group_id)
 
     # reset dell'ambiente
@@ -234,8 +235,110 @@ for (group_id, group_date), group_data in grouped_df_2022:
         global_poi_len += poi_len
 
     print("\n\n\n\n")
-print("Experience Buffer: {experience_buffer}")
-print("Reward Medio: {reward_globale/i}")
-print("Tempo medio sprecato: { global_time_wasted_cod/global_time * 100 }")
-print("TEMPO TOTALE = {global_time}     TEMPO SPRECATO= {global_time_wasted_cod}  ")
-print(" POI LEN = {global_poi_len/i}")
+print(f"Experience Buffer: {experience_buffer}")
+print(f"Reward Medio: {reward_globale/i}")
+print(f"Tempo medio sprecato: { global_time_wasted_cod/global_time * 100 }")
+print(f"TEMPO TOTALE = {global_time}     TEMPO SPRECATO= {global_time_wasted_cod}  ")
+print(f" POI LEN = {global_poi_len/i}")
+
+
+###################################################
+###################### MAIN #######################
+###################################################
+
+# meteo e temperatura
+print_date_type(date_input,df_weather_2022,"admin")
+
+# Inizializzo l'ambiente
+env=poi_env(date_input,df_poi_it,df_crowding,df_poi_time_travel)
+start_state = env.reset(poi_start , timedelta( hours = time_input ) , date_input )
+
+# mappatura poi -> action
+map_from_poi_to_action,map_from_action_to_poi = neural_poi_map()
+
+# 20 il numero di neuroni in un layer, 15 è il numero di campi dello stato, 13 è il numero di ouput(POI)
+#neural_network = initialization_dn(20,15,13)
+neural_network = initialization_dn(15,20,18)
+
+# lancio DQN algoritmo deep q learning
+neural_network, score, best_journey = DQN(env, neural_network,1, 32 ,time_input,poi_start,date_input, experience_buffer)
+score
+print(f"Media Reward  = {np.array([score]).mean()}")
+
+# Stampo le statistiche del tour
+best_journey=  [300, 52, 76, 61]
+start_state = env.reset(poi_start , timedelta( hours = time_input ) , date_input )
+for a in best_journey:
+   env.step(a)
+total_time_visit, total_time_distance, total_time_crowd, time_left=env.time_stats()
+print_stats(189, total_time_distance, 21, time_left,time_input)
+
+# aggiorno il file crowd
+# df_crowding = pd.read_csv('data/log_crowd.csv', usecols=['data','val_stim','poi']).sort_values(by=['data','poi'])
+
+# best_journey= [59, 58, 71, 49, 76]
+start_state = env.reset(poi_start, timedelta(hours=time_input), date_input)
+for a in best_journey:
+    current_time = env.current_time()
+    if current_time.hour < 12:
+        crowd_range = current_time.replace(hour=8, minute=0, second=0)
+    elif current_time.hour >= 12 and current_time.hour < 16:
+        crowd_range = current_time.replace(hour=12, minute=0, second=0)
+    else:
+        crowd_range = current_time.replace(hour=16, minute=0, second=0)
+
+    estimated_crowd = df_crowding.loc[(df_crowding['poi'] == a) & (df_crowding['data'] == str(crowd_range))]
+    print(estimated_crowd)
+    env.step(a)
+
+    if estimated_crowd.empty:
+        # print("empty")
+        new_row = pd.DataFrame({'data': [str(crowd_range)], 'val_stim': [1], 'poi': [a]})
+        df_crowding = pd.concat([df_crowding, new_row], ignore_index=True)
+    else:
+        df_crowding.loc[(df_crowding['poi'] == a) & (df_crowding['data'] == str(crowd_range)), 'val_stim'] += 1
+
+    estimated_crowd2 = df_crowding.loc[(df_crowding['poi'] == a) & (df_crowding['data'] == str(crowd_range))]
+    print(estimated_crowd2)
+
+# df_crowding.to_csv('data/log_crowd.csv', index=False)
+# print(df_crowding)
+
+# BaseLine Casuale
+
+# Inizializzo l'ambiente
+env_random = poi_env(date_input,df_poi_it,df_crowding,df_poi_time_travel)
+start_state = env_random.reset(poi_start , timedelta( hours = time_input ) , date_input)
+r_tot = 0
+trials_rand_number = 400
+global_time = 0
+global_time_wasted_cam = 0
+global_time_wasted_cod = 0
+global_poi_len = 0
+
+# scelgo una serie di POI casuali finche ho tempo per visitarli
+for i in range(trials_rand_number):
+    done = False
+    poi_len = 0
+    env_random.reset(poi_start , timedelta( hours = time_input ) ,date_input)
+    while done==False:   #controllare prima se ci sono ancora azioni da fare
+            a = random.choices(list(env_random.action_space), k=1)[0]
+            _ , r, done = env_random.step(a)
+            r_tot += r
+            poi_len += 1
+    total_time_visit, total_time_distance, total_time_crowd, time_left=env_random.time_stats()
+
+
+    global_time_wasted_cam += total_time_distance
+    global_time_wasted_cod += total_time_crowd
+    global_time += total_time_visit + total_time_distance + total_time_crowd
+    global_poi_len += poi_len
+
+print(f"REWARD MEDIO: {r_tot/trials_rand_number} con {trials_rand_number} Episodi")
+global_time_wasted += total_time_distance + total_time_crowd
+global_time += total_time_visit + total_time_distance + total_time_crowd
+print(f" TEMPO BUTTATO {global_time_wasted_cam / 400} ")
+print(f" TEMPO BUTTATO {global_time_wasted_cod / 400} ")
+
+print(f" media poi = {global_poi_len/400} ")
+
