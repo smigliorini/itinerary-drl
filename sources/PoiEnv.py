@@ -48,12 +48,12 @@ import utils
 
 
 class poi_env:
-    def __init__(self, date, df_poi_it, df_crowding, df_poi_time_travel):
+    def __init__(self, df_poi_it, df_crowding, df_poi_time_travel):#(self, date, df_poi_it, df_crowding, df_poi_time_travel):
 
         self.action_space = set(df_poi_it.id)  # dove posso andare, tutti i poi
         self.state = None  # stato ->[poi,timestamp] [array di poi visitati] ,None siccome lo stato iniziale è vuoto
         self.timeleft = None  # Tempo rimasto per il tour
-        self.poi_date = date  # data nel formato datetime(year, month, day, hour, minute, second, microsecond)
+        #self.poi_date = date  # data nel formato datetime(year, month, day, hour, minute, second, microsecond)
         self.explored = set()  # poi già visitati, all'inizio vuoto
         self.map_from_poi_to_action, self.map_from_action_to_poi = utils.neural_poi_map()
 
@@ -108,7 +108,10 @@ class poi_env:
 
         # Calcolo time visit, se sfora tengo solo la parte di tempo che riesco ad usare
         if ((time_crowd + time_distance + self.poi_time_visit[poi_dest]) > time_left_int):
-            time_visit = time_left_int - (time_crowd + time_distance)
+            if time_crowd + time_distance > time_left_int:
+                time_visit = time_left_int
+            else:
+                time_visit = time_left_int - (time_crowd + time_distance)
         else:
             time_visit = self.poi_time_visit[poi_dest]
 
@@ -198,22 +201,3 @@ class poi_env:
 
     def current_time(self):
         return timedelta(minutes=int(self.state[1])) + self.poi_date
-
-
-"""
-    def predict_poi(self):
-        #predict del poi visitabile col reward maggiore
-        max = 0.0
-        poi_max = 0
-        actual_act_space = self.action_space.copy()
-        for poi in actual_act_space:
-            done_tmp,available,_ = self.poi_available(poi)
-            if(available):
-                #calcolo il reward
-                reward = self.calc_reward(poi)
-                if reward>max : 
-                    max = reward
-                    poi_max = poi
-        return poi_max,max
-        #return poi col reward massimo e valore reward
-"""

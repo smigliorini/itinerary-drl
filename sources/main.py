@@ -4,13 +4,46 @@ import random
 from tensorflow import keras
 from tensorflow.keras import layers
 from datetime import *
+import time
 from collections import deque
 
 from PoiEnv import poi_env
 from utils import *
 
-#print each path and stats in history and random baseline
-print_each_path = False
+#############################################
+################ LOAD # DATA ################
+#############################################
+
+# Latitude, Longitude, Time visit
+df_poi_it = pd.read_csv('../data/poi_it.csv', usecols=['id', 'latitude', 'longitude', 'Time_Visit', 'max_crowd'])
+
+# POI occupation grouped by day and time slots
+df_crowding = pd.read_csv('../data/log_crowd.csv', usecols=['data', 'val_stim', 'poi']).sort_values(by=['data', 'poi'])
+
+# Time travel in minutes of each pair of poi
+df_poi_time_travel = pd.read_csv('../data/poi_time_travel.csv', usecols=['poi_start', 'poi_dest', 'time_travel'])
+
+# weather contidion during 2022 [temperature,rain]
+df_weather = pd.read_csv('../data/weather_2022_processed.csv',usecols=['date','temp','rain'])
+df_weather_test = pd.read_csv('../data/weather_2023_processed.csv',usecols=['date','temp','rain'])
+
+# data_all contains user visits
+df_poi_train = pd.read_csv('../data/data_train.csv',
+                            usecols=["id_veronacard","profilo","data_visita","ora_visita","sito_nome","poi"]).sort_values(
+    ['id_veronacard', 'data_visita', 'ora_visita'])
+
+df_poi_test = pd.read_csv('../data/data_2023.csv',
+                            usecols=["id_veronacard","profilo","data_visita","ora_visita","sito_nome","poi"]).sort_values(
+    ['id_veronacard', 'data_visita', 'ora_visita'])
+
+# POI popularity 
+df_poi_popularity = pd.read_csv('../data/poi_popularity_train.csv', usecols=['poi', 'popularity','position'])
+df_poi_popularity_context = pd.read_csv('../data/poi_popularity_ctx_train.csv', usecols=['temp','rain','poi','popularity','position'])
+
+df_poi_popularity_test = pd.read_csv('../data/poi_popularity_2023.csv', usecols=['poi', 'popularity','position'])
+df_poi_popularity_context_test = pd.read_csv('../data/poi_popularity_ctx_2023.csv', usecols=['temp','rain','poi','popularity','position'])
+
+popular_poi = df_poi_popularity.sort_values(by=['popularity'], ascending=False)['poi'].values[:3]
 
 # map POI->action
 map_from_poi_to_action, map_from_action_to_poi = neural_poi_map()
@@ -31,11 +64,7 @@ def initialization_dn(layer_size, input_layer, output_layer):
 def train_model(model, memory, batch_size, poi_set_len, last_set, gamma=0.96):
     size = min(batch_size, len(memory))
     mb = random.sample(memory, size)
-    # print(memory[-1])
-    # if len(memory)>batch_size:
-    # mb.append(last_set)
-    # print(f"lastset:{last_set}")
-    # print(f"mb:{mb}")
+
     for [s, a, s_1, r, done, s_act_space, s1_act_space] in mb:
         state = s.reshape(1, poi_set_len + 2)
         target = model.predict(state, verbose=0)
@@ -58,13 +87,15 @@ def train_model(model, memory, batch_size, poi_set_len, last_set, gamma=0.96):
     return model
 
 
-def DQN(environment, neural_network, trials, batch_size, time_input, poi_start, date_input, experience_buffer,
-        epsilon_decay=0.997):
+def DQN(environment, neural_network, trials, batch_size, time_input, poi_start, date_input, 
+        experience_buffer, epsilon_decay=0.997):
+    
+    if len(experience_buffer) > 100:
+        experience_buffer = random.sample(experience_buffer, 100)
     epsilon = 1
     epsilon_min = 0.01
     score = 0
     score_queue = []
-    # experience_buffer = deque(maxlen=700)
     score_max = 0
     best_journey = []
     best_trial = -1
@@ -116,78 +147,192 @@ def DQN(environment, neural_network, trials, batch_size, time_input, poi_start, 
 
     return neural_network, score_queue, best_journey
 
+def context_distance_popularity_baseline(date_input, df_weather, time_input, poi_start, context=False):
+    if context:
+        str_summary = "BCDP"
+        poi_popularity_ctx = df_poi_popularity_context.copy()
+    else:
+        str_summary = "BDP"
+        poi_popularity = df_poi_popularity.copy()
+
+        # choose the nearest and most popular POI to vist untile time is over
+    
+    done = False
+    poi_len = 0
+
+    # Initialization of the environment -> reset for each date
+    env = poi_env(df_poi_it,df_crowding,df_poi_time_travel)
+    env.reset(poi_start , timedelta( hours = time_input ) ,date_input)
+    visited_poi = [poi_start]
+    reward = 0  
+
+    if context:
+        temp, rain = get_weather(date_input, df_weather)
+        poi_popularity = poi_popularity_ctx[(poi_popularity_ctx['temp'] == temp) & 
+                                            (poi_popularity_ctx['rain'] == rain)]
+    
+    while done==False:   # check if all possible actions are done
+            #last poi visited
+            last_poi_visited = env.state[0]
+            distance_poi = df_poi_time_travel[(df_poi_time_travel['poi_start'] == last_poi_visited) & 
+                                                (df_poi_time_travel['poi_dest'] != last_poi_visited) & df_poi_time_travel['poi_dest'].isin(env.action_space)].copy()
+            distance_values = list(distance_poi['time_travel'].drop_duplicates().sort_values())
+
+            distance_poi['points'] = distance_poi['time_travel'].apply(lambda x: distance_values.index(x)+1)
+            distance_poi.rename(columns={'poi_dest': 'poi'}, inplace=True)
+            choiche_poi = pd.merge(distance_poi, poi_popularity, on='poi', how='left')
+            choiche_poi['tot'] = choiche_poi['points'] + choiche_poi['position']
+            choiche_poi = choiche_poi.sort_values(by=['tot'], ascending=True)
+
+            a = choiche_poi['poi'].values[0]
+            
+            _ , r, done = env.step(a)
+            reward += r
+            poi_len += 1
+            visited_poi.append(a)
+
+    total_time_visit, total_time_distance, total_time_crowd, time_left=env.time_stats()
+    
+    popular_poi_visited = len(set(visited_poi) & set(popular_poi))
+        
+    return reward, total_time_visit, total_time_distance, total_time_crowd, time_left, poi_len, popular_poi_visited, visited_poi
+
 #############################################
-############### ENV # INFO ##################
+############ TRAINING EXPBUFFER #############
 #############################################
 
-# Environment input
-date_input = datetime(2022, 12, 2, 9, 00)
-time_input = 4
-poi_start = 300
+print("\n################## EXP BUFFER ##################\n")
 
-### Load data
-# Latitude, Longitude, Time visit
-df_poi_it = pd.read_csv('../data/poi_it.csv', usecols=['id', 'latitude', 'longitude', 'Time_Visit', 'max_crowd'])
-
-# POI occupation grouped by day and time slots
-df_crowding = pd.read_csv('../data/log_crowd.csv', usecols=['data', 'val_stim', 'poi']).sort_values(by=['data', 'poi'])
-
-# Time travel in minutes of each pair of poi
-df_poi_time_travel = pd.read_csv('../data/poi_time_travel.csv', usecols=['poi_start', 'poi_dest', 'time_travel'])
-
-# weather contidion during 2022 [temperature,rain]
-df_weather_2022 = pd.read_csv('../data/Verona 2022-01-01 to 2022-12-31_Precipitazioni.csv')
-
-
-#############################################
-############ HISTORY # BASELINE #############
-#############################################
-
-print("\n################## HISTORY ##################\n")
-
-### Load historical data
-
-# Veronacard_2022_opendata contains user visits
-df_poi_vr2022 = pd.read_csv('../data/veronacard_2022_original.csv',
-                            usecols=['id_veronacard', 'data_visita', 'ora_visita', 'sito_nome']).sort_values(
-    ['id_veronacard', 'data_visita', 'ora_visita'])
-
-# Dictionary Poi number - > nome Poi
-poi_dict = {'Arena': 49, 'Palazzo della Ragione': 58, 'Casa Giulietta': 61, 'Castelvecchio': 71, 'Teatro Romano': 42,
-            'San Fermo': 62,
-            'Torre Lamberti': 59, 'Duomo': 52, 'Santa Anastasia': 54, 'San Zeno': 63, 'Museo Storia': 201,
-            'Tomba Giulietta': 202, 'Giardino Giusti': 75, 'Museo Lapidario': 76, 'Museo Miniscalchi': 300,
-            'Palazzo Maffei Casa Museo': 301, 'Museo Nazionale': 302, 'Eataly Verona': 303}
-
-df_poi_vr2022['poi'] = df_poi_vr2022['sito_nome'].map(poi_dict)
-
-# Filter by date fro experiments
-df_poi_vr2022 = df_poi_vr2022.loc[df_poi_vr2022["data_visita"] == '02/12/22']
-
-global_reward = 0
-i = 0
-global_total_time_visit = 0
-global_total_time_distance = 0
-global_total_time_crowd = 0
-global_time_left = 0
-global_time = 0
-global_poi_len = 0
+df_poi_h = df_poi_train.copy()
+print(f"Number of sample: {len(df_poi_h)}")
 
 # Grouped by Verona card and date of visit
-grouped_df_2022 = df_poi_vr2022.groupby(['id_veronacard', 'data_visita'])
+grouped_df_h = df_poi_h.groupby(['id_veronacard', 'data_visita'])
+
 # Initialization of the environment
-poi_env_2022 = poi_env(date_input, df_poi_it, df_crowding, df_poi_time_travel)
-experience_buffer = deque(maxlen=700)
+env_h = poi_env(df_poi_it, df_crowding, df_poi_time_travel)
 
-for (group_id, group_date), group_data in grouped_df_2022:
+# One experience buffer for each context
+poi_exp_b = df_poi_it['id'].values.astype(str).tolist()
+time_input_exp_b =  [str(x) for x in range(0, 6)]
+rain_exp_b = ['rain', 'no_rain']
+temp_exp_b = [str(x) for x in range(0, 5)]
 
-    date_loop = datetime.strptime(group_date, "%d/%m/%y")
-    if print_each_path:
-        print_date_type(date_loop, df_weather_2022, group_id)
-        print( "POI START: " + str( poi_start ) )
+df_key_exp_buffer_h = pd.DataFrame({'poi': poi_exp_b})
+df_key_exp_buffer_h = df_key_exp_buffer_h.merge( pd.DataFrame({'time':time_input_exp_b}), how='cross')
+df_key_exp_buffer_h = df_key_exp_buffer_h.merge( pd.DataFrame({'temp':temp_exp_b}), how='cross')
+df_key_exp_buffer_h = df_key_exp_buffer_h.merge( pd.DataFrame({'rain':rain_exp_b}), how='cross')
+
+exp_buffer_h = {}
+for i in range(len(df_key_exp_buffer_h)):
+    exp_buffer_h['+'.join(df_key_exp_buffer_h.loc[i].tolist())] = deque(maxlen=700)
+
+#ctx_experience_buffer_h = {[]:deque(maxlen=700)}
+
+print(f"Number of users: {len(grouped_df_h)}")
+i_train = 0
+for (group_id, group_date), group_data in grouped_df_h:
+    poi_start_h = group_data['poi'].iloc[0]
+    date_input_h = datetime.strptime(group_date, '%Y-%m-%d')
 
     # reset environment for each new user
-    state = poi_env_2022.reset(poi_start, timedelta(hours=14), date_input)
+    state = env_h.reset(poi_start_h, timedelta(hours=14), date_input_h)
+    relative_start_time = 0
+    insertable = True
+    first_visit_time = None
+    last_visit_time = None
+
+    poi_len = 0
+
+    for index, row in group_data.iterrows():
+        if first_visit_time is None:
+            first_visit_time = datetime.strptime(row['ora_visita'], '%H:%M:%S')
+            last_visit_time = datetime.strptime(row['ora_visita'], '%H:%M:%S')
+            last_poi = row['poi']
+        else:
+            last_visit_time = datetime.strptime(row['ora_visita'], '%H:%M:%S')
+            last_poi = row['poi']
+    time_input_h = (last_visit_time + timedelta(minutes=env_h.poi_time_visit[last_poi])).hour - first_visit_time.hour
+
+    #'303+10+2+no_rain'
+    #poi+time/2+temp+rain
+    temp_h, rain_h = get_weather(date_input_h, df_weather)
+    key_exp_buff = '+'.join([str(poi_start_h), str(int(time_input_h/2)), str(temp_h), str(rain_h)])
+    if len(exp_buffer_h[key_exp_buff]) >= 200:
+        continue
+    for index, row in group_data.iterrows():
+        if (row['poi'] not in env_h.explored):
+            act_space = env_h.action_space.copy()
+
+            new_state, reward, done = env_h.step(row['poi'])
+            act_space_2 = env_h.action_space.copy()
+            a = map_from_poi_to_action[row['poi']]
+            exp_buffer_h[key_exp_buff].append([state, a, new_state, reward, done, act_space, act_space_2]) 
+            state = new_state
+
+    env_h.timeleft = timedelta(minutes=0)  # reset time left for each real user, he or she has no more time for visits
+
+    exit = True
+    for v in exp_buffer_h.values():
+        if len(v) < 100:#--> finire quando arrivo almeno a 100 per ogni contesto
+            exit = False
+    
+    if exit:
+        print('\nEnxperience buffer filled for all context\n')
+        break
+
+    i_train += 1
+    
+    if i_train % 1000 == 0:
+        print(f"Processed {i_train}/{len(grouped_df_h)} - {i_train/len(grouped_df_h)*100}")
+
+
+#############################################
+################# BASELINES #################
+#############################################
+
+print("\n################## BASELINES ##################\n")
+
+### Load historical data
+df_poi_h = df_poi_test.copy()
+
+itinerary_h = pd.DataFrame(columns=['id_veronacard', 'itinerary', 'reward', 'time_visit', 'time_distance',
+                                    'time_crowd', 'time_left', 'time_input', 'popular_poi_visited', 'poi_len'])
+itinerary_dp = pd.DataFrame(columns=['id_veronacard', 'itinerary', 'reward', 'time_visit', 'time_distance',
+                                     'time_crowd', 'time_left', 'time_input', 'popular_poi_visited', 'poi_len'])
+itinerary_cdp = pd.DataFrame(columns=['id_veronacard', 'itinerary', 'reward', 'time_visit', 'time_distance',
+                                      'time_crowd', 'time_left', 'time_input', 'popular_poi_visited', 'poi_len'])
+itinerary_dqn = pd.DataFrame(columns=['id_veronacard', 'itinerary', 'reward', 'best_reward','time_visit', 'time_distance',
+                                      'time_crowd', 'time_left', 'time_input', 'popular_poi_visited', 'poi_len','time_process'])
+
+global_reward_h = global_reward_cdp = global_reward_dp = global_reward_dqn = global_best_reward_dqn = 0
+global_total_time_visit_h = global_total_time_visit_cdp = global_total_time_visit_dp = global_total_time_visit_dqn = 0
+global_total_time_distance_h = global_total_time_distance_cdp = global_total_time_distance_dp = global_total_time_distance_dqn = 0
+global_total_time_crowd_h = global_total_time_crowd_cdp = global_total_time_crowd_dqn = global_total_time_crowd_dp = 0
+global_time_left_h = global_time_left_cdp = global_time_left_dp = global_time_left_dqn = 0
+global_poi_len_h = global_poi_len_cdp = global_poi_len_dqn = global_poi_len_dp = 0
+popular_poi_visited_h = global_popular_poi_visited_cdp = global_popular_poi_visited_dp = global_popular_poi_visited_dqn =  0
+
+global_time_process_dqn = 0
+global_time_h = 0
+i_h = i_dqn = 0
+
+# Grouped by Verona card and date of visit
+grouped_df_h = df_poi_h.groupby(['id_veronacard', 'data_visita'])
+len_vc = len(grouped_df_h)
+print(f"Number of sample: {len_vc}")
+# Initialization of the environment
+env_h = poi_env(df_poi_it, df_crowding, df_poi_time_travel)
+
+for (group_id, group_date), group_data in grouped_df_h:
+    if len(list(group_data['poi'].values)) != len(set(group_data['poi'].values)): #check if there are duplicates
+        continue
+    poi_start = group_data['poi'].iloc[0]
+
+    date_input = datetime.strptime(group_date, "%Y-%m-%d")
+
+    # reset environment for each new user
+    state = env_h.reset(poi_start, timedelta(hours=14), date_input)
     reward_tot = 0
     relative_start_time = 0
     insertable = True
@@ -197,158 +342,170 @@ for (group_id, group_date), group_data in grouped_df_2022:
     poi_len = 0
 
     for index, row in group_data.iterrows():
-        if print_each_path:
-            print(f"Begin visit time: {row['ora_visita']},  POI {row['poi']}")
-
         poi_len += 1
-        if (row['poi'] not in poi_env_2022.explored):
+        if (row['poi'] not in env_h.explored):
 
             if first_visit_time is None:
                 first_visit_time = datetime.strptime(row['ora_visita'], '%H:%M:%S')
                 last_visit_time = datetime.strptime(row['ora_visita'], '%H:%M:%S')
-                relative_start_time = int(first_visit_time.hour * 60 + first_visit_time.minute - (
-                        date_input.hour * 60 + date_input.minute + poi_env_2022.calc_distance(
-                    row['poi']) + poi_env_2022.crowding_wait(row['poi'])))
-                # relative_start_time = 0
-                # print(f"relative start time: {relative_start_time}")
+                last_poi = row['poi']
 
-                poi_env_2022.state[1] = relative_start_time
+                env_h.state[1] = relative_start_time
             else:
                 last_visit_time = datetime.strptime(row['ora_visita'], '%H:%M:%S')
+                last_poi = row['poi']
 
-            act_space = poi_env_2022.action_space.copy()
+            act_space = env_h.action_space.copy()
             # print(state)
             # print(act_space)
+            new_state, reward, done = env_h.step(row['poi'])
 
-            new_state, reward, done = poi_env_2022.step(row['poi'])
-            if new_state[1] >= time_input * 60:
-                insertable = True
-            if insertable:
-                act_space_2 = poi_env_2022.action_space.copy()
-                a = map_from_poi_to_action[row['poi']]
-                experience_buffer.append([state, a, new_state, reward, done, act_space, act_space_2])
+            act_space_2 = env_h.action_space.copy()
+            a = map_from_poi_to_action[row['poi']]
             state = new_state
             reward_tot += reward
-    poi_env_2022.timeleft = timedelta(minutes=0)  # reset time left for each real user, he or she has no more time for visits
+    env_h.timeleft = timedelta(minutes=0)  # reset time left for each real user, he or she has no more time for visits
+
+    time_input = (last_visit_time + timedelta(minutes=env_h.poi_time_visit[last_poi])).hour - first_visit_time.hour
+
+    total_time_visit_h, total_time_distance_h, total_time_crowd_h, time_left_h = env_h.time_stats()
+
+    itinerary_h.loc[i_h] = [group_id, list(group_data['poi'].values), reward_tot, total_time_visit_h, total_time_distance_h, total_time_crowd_h, time_left_h, time_input, len(set(env_h.explored) & set(popular_poi)), poi_len]
+       
+    global_total_time_visit_h += total_time_visit_h
+    global_total_time_distance_h += total_time_distance_h
+    global_total_time_crowd_h += total_time_crowd_h
+    global_time_left_h += time_left_h
+    #global_time_h += total_time_distance_h + total_time_crowd_h + total_time_visit_h
+    global_time_h += time_input*60
+
+    visited_poi = env_h.explored.copy()
+    popular_poi_visited_h += len(set(visited_poi) & set(popular_poi))
+
+    global_reward_h += reward_tot
+    i_h += 1
+    global_poi_len_h += poi_len
     
-    total_time_visit, total_time_distance, total_time_crowd, time_left = poi_env_2022.time_stats()
+    #at this point evaluate the historical path, use the same start poi, time and date to query other baselines
+
+    ################### DQN ###################
+
+    # Initialization of the environment
+    env_dqn = poi_env(df_poi_it,df_crowding,df_poi_time_travel)
+    start_state_dqn = env_dqn.reset(poi_start, timedelta( hours = time_input ) , date_input)
+
+    # Initialization of the neural network
+    neural_network = initialization_dn(layer_size=15, input_layer=20, output_layer=18)
+
+    # run DQN algorithm (deep q learning)
     
-        
-    global_total_time_visit += total_time_visit
-    global_total_time_distance += total_time_distance
-    global_total_time_crowd += total_time_crowd
-    global_time_left += time_left
-    global_time += total_time_distance + total_time_crowd + total_time_visit
+    temp, rain = get_weather(date_input, df_weather_test)
+    key_exp_buff = '+'.join([str(poi_start), str(int(time_input/2)), str(temp), str(rain)])
+    experience_buffer_h = exp_buffer_h[key_exp_buff]
 
-    global_reward += reward_tot
-    i += 1
-    global_poi_len += poi_len
-    if print_each_path:
-        print("\n")
-        print("STATS")
-        print(f"[BH] REWARD: {reward_tot}")
-        print_stats(total_time_visit, total_time_distance, total_time_crowd, time_left,
-                (total_time_visit + total_time_distance + total_time_crowd) / 60, '[BH] ')
-        print("\n\n\n\n")
+    if experience_buffer_h == 'DONE':
+        continue
+    else:
+        i_dqn += 1
 
-print(f"\n[BH SUM UP] Sum up history baseline:")
-print(f"[BH SUM UP] AVG Reward: {global_reward/i}")
-print_stats(global_total_time_visit/i, global_total_time_distance/i, global_total_time_crowd/i, global_time_left/i, global_time/i/60, '[BH SUM UP] ')
-#print(f"[BH SUM UP] AVG Wasted time: { global_total_time_crowd/global_time * 100 }")
-#print(f"[BH SUM UP] TOTAL TIME = {global_time}     TIME WASTED = {global_total_time_crowd}  ")
-print(f"[BH SUM UP] POI LEN = {global_poi_len/i}")
+    experience_buffer_dqn = experience_buffer_h 
+    start_dqn = time.time()
+    neural_network, score_dqn, best_journey = DQN(env_dqn, neural_network, 300, 32, time_input, poi_start, date_input, experience_buffer_dqn)
+    time_process_dqn = time.time() - start_dqn
+    reward_dqn = np.array([score_dqn]).mean()
+    best_reward_dqn = np.array([score_dqn]).max()
+    global_reward_dqn += reward_dqn
+    global_best_reward_dqn += best_reward_dqn
+
+    exp_buffer_h[key_exp_buff] = 'DONE'
+
+    total_time_visit_dqn, total_time_distance_dqn, total_time_crowd_dqn, time_left_dqn=env_dqn.time_stats()
+    popular_poi_visited_dqn = len(set(best_journey) & set(popular_poi))
+    global_popular_poi_visited_dqn += popular_poi_visited_dqn
+    global_total_time_visit_dqn += total_time_visit_dqn
+    global_total_time_distance_dqn += total_time_distance_dqn
+    global_total_time_crowd_dqn += total_time_crowd_dqn
+    global_time_left_dqn += time_left_dqn
+    global_time_process_dqn += time_process_dqn
+
+    itinerary_dqn.loc[i_dqn] = [group_id, list(best_journey), reward_dqn, best_reward_dqn, total_time_visit_dqn, total_time_distance_dqn, total_time_crowd_dqn, 
+                             time_left_dqn, time_input, popular_poi_visited_dqn, len(best_journey), time_process_dqn]
 
 
-###################################################
-###################### DQN ########################
-###################################################
+    ########## DISTANCE-P # BASELINE ##########
 
-print("\n#################### DQN ####################\n")
+    reward_dp, total_time_visit_dp, total_time_distance_dp, total_time_crowd_dp, time_left_dp, poi_len_dp, popular_poi_visited_dp, poi_visited_dp = context_distance_popularity_baseline(date_input, df_weather_test, time_input, poi_start, False)
 
-# Weather and time
-print_date_type(date_input, df_weather_2022, "admin")
+    itinerary_dp.loc[i_h] = [group_id, poi_visited_dp, reward_dp, total_time_visit_dp, total_time_distance_dp, total_time_crowd_dp, time_left_dp, time_input, popular_poi_visited_dp, poi_len_dp]
 
-# Initialization of the environment
-env = poi_env(date_input,df_poi_it,df_crowding,df_poi_time_travel)
-start_state = env.reset(poi_start , timedelta( hours = time_input ) , date_input )
+    global_reward_dp += reward_dp
+    global_total_time_visit_dp += total_time_visit_dp
+    global_total_time_distance_dp += total_time_distance_dp
+    global_total_time_crowd_dp += total_time_crowd_dp
+    global_time_left_dp += time_left_dp
+    global_poi_len_dp += poi_len_dp
+    global_popular_poi_visited_dp += popular_poi_visited_dp
 
-# Initialization of the neural network
-neural_network = initialization_dn(layer_size=15, input_layer=20, output_layer=18)
 
-# run DQN algorithm (deep q learning)
-neural_network, score, best_journey = DQN(env, neural_network, 300, 32, time_input, poi_start, date_input, experience_buffer)
-score
-print(f"[DRL] AVG Reward  = {np.array([score]).mean()}")
+    ######### CTX-DISTANCE-P # BASELINE #########
 
-print("\n#################### TOUR ###################\n")
-# Print tour stats
-best_journey=  [300, 52, 76, 61]
-start_state = env.reset(poi_start , timedelta( hours = time_input ) , date_input )
-reward_best = 0
-for a in best_journey:
-    _ , r, _ = env.step(a)
-    reward_best += r
-print(f"[BEST] Reward: {reward_best}")
-total_time_visit, total_time_distance, total_time_crowd, time_left=env.time_stats()
-print_stats(total_time_visit, total_time_distance, total_time_crowd, time_left,time_input, "[BEST] ")
+    reward_cdp, total_time_visit_cdp, total_time_distance_cdp, total_time_crowd_cdp, time_left_cdp, poi_len_cdp, popular_poi_visited_cdp, poi_visited_cdp = context_distance_popularity_baseline(date_input, df_weather_test, time_input, poi_start, True)
 
-#############################################
-########### BASELINE # RANDOM ###############
-#############################################
+    itinerary_cdp.loc[i_h] = [group_id, poi_visited_cdp, reward_cdp, total_time_visit_cdp, total_time_distance_cdp, total_time_crowd_cdp, time_left_cdp, time_input, popular_poi_visited_cdp, poi_len_cdp]
 
-print("\n################## RANDOM ##################\n")
+    global_reward_cdp += reward_cdp
+    global_total_time_visit_cdp += total_time_visit_cdp
+    global_total_time_distance_cdp += total_time_distance_cdp
+    global_total_time_crowd_cdp += total_time_crowd_cdp
+    global_time_left_cdp += time_left_cdp
+    global_poi_len_cdp += poi_len_cdp
+    global_popular_poi_visited_cdp += popular_poi_visited_cdp
 
-# Initialization of the environment
-env_random = poi_env(date_input,df_poi_it,df_crowding,df_poi_time_travel)
-start_state = env_random.reset(poi_start , timedelta( hours = time_input ) , date_input)
-global_reward = 0
-trials_rand_number = 400
-global_time = 0
-global_total_time_visit = 0
-global_total_time_distance = 0
-global_total_time_crowd = 0
-global_time_left = 0
-global_poi_len = 0
+    if i_h % 100 == 0:
+        print(f'Processed {i_h}/{len_vc} users')
 
-# choose one POI to vist randomly untile time is over
-for i in range(trials_rand_number):
-    time_tot = 0
-    done = False
-    poi_len = 0
-    env_random.reset(poi_start , timedelta( hours = time_input ) ,date_input)
-    visited_poi = []
-    reward = 0   
-    
-    while done==False:   # check if all possible actions are done
-            a = random.choices(list(env_random.action_space), k=1)[0]
-            _ , r, done = env_random.step(a)
-            #r_tot += r
-            reward += r
-            poi_len += 1
-            visited_poi.append(a)
-    total_time_visit, total_time_distance, total_time_crowd, time_left=env_random.time_stats()
 
-    global_total_time_visit += total_time_visit
-    global_total_time_distance += total_time_distance
-    global_total_time_crowd += total_time_crowd
-    global_time_left += time_left
-    global_time += total_time_distance + total_time_crowd + total_time_visit
+# itinerary_h.to_csv('../itineraries/itinerary_h.csv', index=False)
+# itinerary_dp.to_csv('../itineraries/itinerary_dp.csv', index=False)
+# itinerary_cdp.to_csv('../itineraries/itinerary_cdp.csv', index=False)
+# itinerary_dqn.to_csv('../itineraries/itinerary_dqn.csv', index=False)
 
-    global_reward += reward
+list_poi = list(df_poi_it['id'].values)
+arp_h = arp_measure(list_poi, list(itinerary_h['itinerary'].values))
+gini_h = gini_measure(list_poi, list(itinerary_h['itinerary'].values))
 
-    global_poi_len += poi_len
+arp_dp = arp_measure(list_poi, list(itinerary_dp['itinerary'].values))
+gini_dp = gini_measure(list_poi, list(itinerary_dp['itinerary'].values))
 
-    if print_each_path:
-        print(f"[BR] Random sequence: {visited_poi}")
-        print(f"[BR] Reward: {reward}")
-        print_stats(total_time_visit, total_time_distance, total_time_crowd, time_left,
-            (total_time_visit + total_time_distance + total_time_crowd) / 60, '[BR] ')
-        print("\n\n\n\n")
-    
+arp_cdp = arp_measure(list_poi, list(itinerary_cdp['itinerary'].values))
+gini_cdp = gini_measure(list_poi, list(itinerary_cdp['itinerary'].values))
 
-print(f"\n[BR SUM UP] Sum up random baseline:")
-print(f"[BR SUM UP] AVG Reward ({trials_rand_number} episodes): {global_reward/trials_rand_number} ")
-print_stats(global_total_time_visit/trials_rand_number, global_total_time_distance/trials_rand_number, global_total_time_crowd/trials_rand_number, global_time_left/trials_rand_number, global_time/trials_rand_number/60, '[BR SUM UP] ')
-#print(f"[BR SUM UP] AVG Wasted time: { global_total_time_crowd/global_time * 100 }")
-#print(f"[BR SUM UP] TOTAL TIME = {global_time}     TIME WASTED = {global_total_time_crowd}  ")
-print(f"[BR SUM UP] POI LEN = {global_poi_len/trials_rand_number}")
+arp_dqn = arp_measure(list_poi, list(itinerary_dqn['itinerary'].values))
+gini_dqn = gini_measure(list_poi, list(itinerary_dqn['itinerary'].values))
+
+
+print(f"\n\tB-History SUM UP")
+print(f"[BH SUM UP] AVG Reward: {global_reward_h/i_h}")
+print_stats(global_total_time_visit_h/i_h, global_total_time_distance_h/i_h, 
+            global_total_time_crowd_h/i_h, global_time_left_h/i_h, 
+            global_time_h/i_h/60, popular_poi_visited_h/i_h, global_poi_len_h/i_h, arp_h, gini_h, '[BH SUM UP] ')
+
+print(f"\n\tB-Distance+Popularity SUM UP")
+print(f"[BDP SUM UP] AVG Reward: {global_reward_dp/i_h}")
+print_stats(global_total_time_visit_dp/i_h, global_total_time_distance_dp/i_h, 
+            global_total_time_crowd_dp/i_h, global_time_left_dp/i_h,
+            global_time_h/i_h/60,global_popular_poi_visited_dp/i_h, global_poi_len_dp/i_h, arp_dp, gini_dp,"[BDP SUM UP] ")
+
+print(f"\n\tB-Context+Distance+Popularity SUM UP")
+print(f"[BCDP SUM UP] AVG Reward: {global_reward_cdp/i_h}")
+print_stats(global_total_time_visit_cdp/i_h, global_total_time_distance_cdp/i_h, 
+            global_total_time_crowd_cdp/i_h, global_time_left_cdp/i_h,
+            global_time_h/i_h/60,global_popular_poi_visited_cdp/i_h, global_poi_len_cdp/i_h, arp_cdp, gini_cdp, "[BCDP SUM UP] ")
+
+print(f"\n\tB-DQN SUM UP")
+print(f"[BDQN SUM UP] AVG Reward: {global_reward_dqn/i_dqn}")
+print(f"[BDQN SUM UP] AVG Best Reward: {global_best_reward_dqn/i_dqn}")
+print_stats(global_total_time_visit_dqn/i_dqn, global_total_time_distance_dqn/i_dqn, 
+            global_total_time_crowd_dqn/i_dqn, global_time_left_dqn/i_dqn,
+            global_time_h/i_h/60,global_popular_poi_visited_dqn/i_dqn, global_poi_len_dqn/i_dqn, arp_dqn, gini_dqn, "[BDQN SUM UP] ")
+print(f'[BDQN SUM UP] Time process: {global_time_process_dqn/i_dqn}')

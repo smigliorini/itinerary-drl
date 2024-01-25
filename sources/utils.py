@@ -21,10 +21,10 @@ def print_date_type(date_input, df_weather, id_verona_card):
     giorni_festivi = holidays.Italy()
 
     # print day informations (weather, temperature, holidays)
-    row_weather = df_weather.loc[df_weather['datetime'] == date_input.strftime('%Y-%m-%d')]
+    row_weather = df_weather.loc[df_weather['date'] == date_input.strftime('%Y-%m-%d')]
     if not row_weather.empty:
         temperatura = row_weather['temp'].iloc[0]
-        condizione = str(row_weather['preciptype'].iloc[0])
+        condizione = str(row_weather['rain'].iloc[0])
         if condizione == "nan": condizione = "sun"
     else:
         temperatura = None
@@ -39,11 +39,15 @@ def print_date_type(date_input, df_weather, id_verona_card):
 
 
 # Print stats about the itinerary
-def print_stats(total_time_visit, total_time_distance, total_time_crowd, time_left, time_input, prefix=""):
+def print_stats(total_time_visit, total_time_distance, total_time_crowd, time_left, time_input, popular, poi_len, arp, gini, prefix=""):
     print(f"{prefix}Total time used: {total_time_visit} min")
     print(f"{prefix}Time walked: {total_time_distance} min")
     print(f"{prefix}Time in queue: {total_time_crowd} min")
     print(f"{prefix}Time left: {time_left} min")
+    print(f"{prefix}Popular POI visited: {popular}")
+    print(f"{prefix}ARP: {arp} ")
+    print(f"{prefix}Gini: {gini} ")
+
 
     percentage_visit = total_time_visit * 100 / (time_input * 60)
     percentage_distance = total_time_distance * 100 / (time_input * 60)
@@ -55,3 +59,37 @@ def print_stats(total_time_visit, total_time_distance, total_time_crowd, time_le
     print("{}Percentage of time in queue   (QT): {:3.2f}%".format(prefix,percentage_crowd))
     print("{}Percentage of time left       (RT): {:3.2f}%".format(prefix,percentage_final))
     print("{}Percentage of time wasted         : {:3.2f}%".format(prefix,percentage_lost_time))
+    
+    print(f"{prefix} POI LEN = {poi_len}")
+
+def get_weather(date_input, df_weather):
+    temp = df_weather[df_weather['date'] == date_input.strftime("%Y-%m-%d")]['temp'].values[0]
+    rain = df_weather[df_weather['date'] == date_input.strftime("%Y-%m-%d")]['rain'].values[0]
+    return int(temp)%5, rain
+
+def arp_measure(poi_list, itinerary_list):
+    arp = 0
+    for poi in poi_list:
+        cont = 0
+        for itinerary in itinerary_list:
+            if poi in itinerary:
+                cont += 1
+        arp += cont / len(itinerary_list)
+    return arp / len(poi_list)
+
+def gini_measure(poi_list, itinerary_list):
+    gini = 0
+    for p in poi_list:
+        for q in poi_list:
+            if p==q:
+                continue
+            cont_p = 0
+            cont_q = 0
+            for it in itinerary_list:
+                if p in it:
+                    cont_p += 1
+                if q in it:
+                    cont_q += 1
+            diff = abs(cont_p - cont_q)
+            gini += diff
+    return gini / (len(poi_list) * len(poi_list) * len(itinerary_list))
