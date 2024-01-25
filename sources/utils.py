@@ -1,4 +1,3 @@
-# Tipologia del giorno Temperatura e condizione atmosferica
 import holidays
 from datetime import datetime
 
